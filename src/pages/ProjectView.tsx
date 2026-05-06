@@ -64,8 +64,9 @@ export default function ProjectView() {
   const totalRetries = stages.reduce((sum, s) => sum + (s.retries ?? 0), 0);
   const completedCount = stages.filter((s) => s.status === 'completed').length;
 
-  const assumptions = stages.find((s) => s.stage_name === 'intent_extraction')?.output_data?.assumptions;
-  const ambiguities = stages.find((s) => s.stage_name === 'intent_extraction')?.output_data?.ambiguities;
+  const intentOutput = stages.find((s) => s.stage_name === 'intent_extraction')?.output_data as Record<string, any> | null;
+  const assumptions = intentOutput?.assumptions as string[] | undefined;
+  const ambiguities = intentOutput?.ambiguities as string[] | undefined;
 
   const copySchema = () => {
     if (finalSchema) {
