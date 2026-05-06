@@ -4,8 +4,6 @@
 
 /* AppForge Design System — Midnight Indigo + Neon accents */
 
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;600&display=swap');
-
 @layer base {
   :root {
     --background: 240 20% 4%;
