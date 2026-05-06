@@ -14,7 +14,180 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      evaluation_runs: {
+        Row: {
+          created_at: string
+          failure_types: Json | null
+          id: string
+          project_id: string
+          stage_latencies: Json | null
+          success_rate: number | null
+          total_latency_ms: number | null
+          total_retries: number | null
+        }
+        Insert: {
+          created_at?: string
+          failure_types?: Json | null
+          id?: string
+          project_id: string
+          stage_latencies?: Json | null
+          success_rate?: number | null
+          total_latency_ms?: number | null
+          total_retries?: number | null
+        }
+        Update: {
+          created_at?: string
+          failure_types?: Json | null
+          id?: string
+          project_id?: string
+          stage_latencies?: Json | null
+          success_rate?: number | null
+          total_latency_ms?: number | null
+          total_retries?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evaluation_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      final_schemas: {
+        Row: {
+          api_schema: Json | null
+          assumptions: Json | null
+          auth_schema: Json | null
+          business_logic: Json | null
+          created_at: string
+          db_schema: Json | null
+          id: string
+          is_valid: boolean
+          project_id: string
+          ui_schema: Json | null
+          validation_report: Json | null
+        }
+        Insert: {
+          api_schema?: Json | null
+          assumptions?: Json | null
+          auth_schema?: Json | null
+          business_logic?: Json | null
+          created_at?: string
+          db_schema?: Json | null
+          id?: string
+          is_valid?: boolean
+          project_id: string
+          ui_schema?: Json | null
+          validation_report?: Json | null
+        }
+        Update: {
+          api_schema?: Json | null
+          assumptions?: Json | null
+          auth_schema?: Json | null
+          business_logic?: Json | null
+          created_at?: string
+          db_schema?: Json | null
+          id?: string
+          is_valid?: boolean
+          project_id?: string
+          ui_schema?: Json | null
+          validation_report?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "final_schemas_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_stages: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          input_data: Json | null
+          latency_ms: number | null
+          output_data: Json | null
+          project_id: string
+          retries: number
+          stage_name: string
+          stage_order: number
+          status: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          input_data?: Json | null
+          latency_ms?: number | null
+          output_data?: Json | null
+          project_id: string
+          retries?: number
+          stage_name: string
+          stage_order: number
+          status?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          input_data?: Json | null
+          latency_ms?: number | null
+          output_data?: Json | null
+          project_id?: string
+          retries?: number
+          stage_name?: string
+          stage_order?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_stages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      projects: {
+        Row: {
+          created_at: string
+          id: string
+          original_prompt: string
+          status: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          original_prompt: string
+          status?: string
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          original_prompt?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
