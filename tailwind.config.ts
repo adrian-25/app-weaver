@@ -60,7 +60,6 @@ export default {
           ring: "hsl(var(--sidebar-ring))",
         },
       },
-      borderRadius: {
       fontFamily: {
         heading: ["'Space Grotesk'", "sans-serif"],
         body: ["'DM Sans'", "sans-serif"],
