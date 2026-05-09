@@ -5,47 +5,66 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { motion } from 'framer-motion';
 import { Activity, Clock, RotateCcw, CheckCircle2 } from 'lucide-react';
 
+interface EvaluationRun {
+  id: string;
+  project_id: string;
+  success_rate: number;
+  total_retries: number;
+  failure_types: string[];
+  total_latency_ms: number;
+  stage_latencies: Record<string, number>;
+  created_at: string;
+  projects: {
+    title: string;
+  };
+}
+
 export default function Eval() {
   const { user } = useAuth();
 
-  const { data: projects = [] } = useQuery({
-    queryKey: ['eval-projects', user?.id],
+  const { data: evalRuns = [] } = useQuery({
+    queryKey: ['evaluation-runs', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('projects')
-        .select('*, pipeline_stages(*), final_schemas(*)')
+        .from('evaluation_runs')
+        .select('*, projects(title)')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data;
+      return data as EvaluationRun[];
     },
     enabled: !!user,
   });
 
-  const totalProjects = projects.length;
-  const completedProjects = projects.filter((p) => p.status === 'completed').length;
+  const totalProjects = evalRuns.length;
+  const avgSuccessRate = totalProjects > 0
+    ? (evalRuns.reduce((sum, run) => sum + (run.success_rate || 0), 0) / totalProjects * 100).toFixed(0)
+    : '0';
   const avgLatency = totalProjects > 0
-    ? projects.reduce((sum, p) => {
-        const stages = (p as any).pipeline_stages || [];
-        return sum + stages.reduce((s: number, st: any) => s + (st.latency_ms || 0), 0);
-      }, 0) / totalProjects
+    ? evalRuns.reduce((sum, run) => sum + (run.total_latency_ms || 0), 0) / totalProjects
     : 0;
-  const totalRetries = projects.reduce((sum, p) => {
-    const stages = (p as any).pipeline_stages || [];
-    return sum + stages.reduce((s: number, st: any) => s + (st.retries || 0), 0);
-  }, 0);
-
-  const chartData = projects.slice(0, 10).map((p) => {
-    const stages = (p as any).pipeline_stages || [];
-    const latency = stages.reduce((s: number, st: any) => s + (st.latency_ms || 0), 0);
-    return { name: (p.title || '').slice(0, 15), latency: Math.round(latency / 1000) };
-  });
+  const totalRetries = evalRuns.reduce((sum, run) => sum + (run.total_retries || 0), 0);
 
   const cards = [
     { icon: Activity, label: 'Total Projects', value: totalProjects },
-    { icon: CheckCircle2, label: 'Completed', value: completedProjects },
+    { icon: CheckCircle2, label: 'Avg Success Rate', value: `${avgSuccessRate}%` },
     { icon: Clock, label: 'Avg Latency', value: `${(avgLatency / 1000).toFixed(1)}s` },
     { icon: RotateCcw, label: 'Total Retries', value: totalRetries },
   ];
+
+  const chartData = evalRuns.slice(0, 10).map((run) => ({
+    name: (run.projects?.title || 'Untitled').slice(0, 15),
+    latency: Math.round((run.total_latency_ms || 0) / 1000),
+  }));
+
+  const tableData = evalRuns.map((run) => ({
+    id: run.id,
+    project: run.projects?.title || 'Untitled',
+    successRate: `${Math.round((run.success_rate || 0) * 100)}%`,
+    retries: run.total_retries || 0,
+    latency: `${((run.total_latency_ms || 0) / 1000).toFixed(1)}s`,
+    failureTypes: (run.failure_types || []).join(', ') || 'None',
+    date: new Date(run.created_at).toLocaleDateString(),
+  }));
 
   return (
     <div className="container py-8 space-y-8">
@@ -86,6 +105,36 @@ export default function Eval() {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {tableData.length > 0 && (
+        <div className="rounded-xl border border-border overflow-hidden">
+          <h3 className="font-heading font-semibold p-4 border-b border-border bg-secondary/30">Evaluation Runs</h3>
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border bg-secondary/30">
+                <th className="px-4 py-3 text-left text-xs font-heading font-semibold text-muted-foreground uppercase tracking-wider">Project</th>
+                <th className="px-4 py-3 text-left text-xs font-heading font-semibold text-muted-foreground uppercase tracking-wider">Success Rate</th>
+                <th className="px-4 py-3 text-left text-xs font-heading font-semibold text-muted-foreground uppercase tracking-wider">Retries</th>
+                <th className="px-4 py-3 text-left text-xs font-heading font-semibold text-muted-foreground uppercase tracking-wider">Latency</th>
+                <th className="px-4 py-3 text-left text-xs font-heading font-semibold text-muted-foreground uppercase tracking-wider">Failure Types</th>
+                <th className="px-4 py-3 text-left text-xs font-heading font-semibold text-muted-foreground uppercase tracking-wider">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableData.map((row) => (
+                <tr key={row.id} className="border-b border-border last:border-0 hover:bg-secondary/20 transition-colors">
+                  <td className="px-4 py-3 font-medium truncate max-w-xs">{row.project}</td>
+                  <td className="px-4 py-3">{row.successRate}</td>
+                  <td className="px-4 py-3">{row.retries}</td>
+                  <td className="px-4 py-3">{row.latency}</td>
+                  <td className="px-4 py-3 text-sm text-muted-foreground">{row.failureTypes}</td>
+                  <td className="px-4 py-3 text-sm text-muted-foreground">{row.date}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

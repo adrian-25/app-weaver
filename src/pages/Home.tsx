@@ -34,17 +34,35 @@ export default function Home() {
     try {
       const { data: project, error } = await supabase
         .from('projects')
-        .insert({ user_id: user.id, title: prompt.slice(0, 60), original_prompt: prompt })
+        .insert({ user_id: user.id, title: prompt.slice(0, 60), original_prompt: prompt, status: 'processing' })
         .select()
         .single();
       if (error) throw error;
 
-      // Fire edge function (don't await — we'll poll)
-      supabase.functions.invoke('run-pipeline', {
-        body: { projectId: project.id, prompt },
-      }).catch(console.error);
+      // Fire edge function
+      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-pipeline`;
+      try {
+        const response = await fetch(functionUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({ projectId: project.id, prompt }),
+        });
 
-      toast.success('Pipeline started!');
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          console.error('Edge function error:', errData);
+          toast.error('Pipeline error: ' + (errData.error || response.statusText));
+        } else {
+          toast.success('Pipeline started!');
+        }
+      } catch (fnErr: any) {
+        console.error('Edge function exception:', fnErr);
+        toast.error('Failed to connect to pipeline: ' + fnErr.message);
+      }
+
       navigate(`/project/${project.id}`);
     } catch (err: any) {
       toast.error(err.message);

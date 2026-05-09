@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { StageCard } from '@/components/StageCard';
 import { JsonViewer } from '@/components/JsonViewer';
@@ -12,6 +12,7 @@ import { motion } from 'framer-motion';
 
 export default function ProjectView() {
   const { id } = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
 
   const { data: project } = useQuery({
     queryKey: ['project', id],
@@ -67,6 +68,32 @@ export default function ProjectView() {
   const intentOutput = stages.find((s) => s.stage_name === 'intent_extraction')?.output_data as Record<string, any> | null;
   const assumptions = intentOutput?.assumptions as string[] | undefined;
   const ambiguities = intentOutput?.ambiguities as string[] | undefined;
+
+  const handleRetryStage = async (stageId: string, stageName: string) => {
+    if (!project || !id) return;
+    
+    toast.info(`Retrying stage: ${stageName}`);
+    
+    try {
+      const { error } = await supabase.functions.invoke('run-pipeline', {
+        body: { 
+          projectId: id, 
+          prompt: project.original_prompt, 
+          retryFromStage: stageName 
+        },
+      });
+      
+      if (error) throw error;
+      
+      toast.success('Stage retry initiated');
+      // Invalidate queries to refresh the UI
+      queryClient.invalidateQueries({ queryKey: ['stages', id] });
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      queryClient.invalidateQueries({ queryKey: ['final_schema', id] });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to retry stage');
+    }
+  };
 
   const copySchema = () => {
     if (finalSchema) {
@@ -156,7 +183,12 @@ export default function ProjectView() {
 
           <div className="space-y-4">
             {stages.map((stage, i) => (
-              <StageCard key={stage.id} stage={stage} index={i} />
+              <StageCard 
+                key={stage.id} 
+                stage={stage} 
+                index={i} 
+                onRetry={handleRetryStage}
+              />
             ))}
             {stages.length === 0 && (
               <div className="text-center py-12 text-muted-foreground">

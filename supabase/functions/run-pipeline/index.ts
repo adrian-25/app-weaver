@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -88,29 +88,34 @@ function stripCodeFences(text: string): string {
   return text.replace(/^```(?:json)?\s*\n?/gm, "").replace(/\n?```\s*$/gm, "").trim();
 }
 
-async function callClaude(system: string, userMessage: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+// Sleep utility for rate limiting
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function callGroq(system: string, userMessage: string): Promise<string> {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
+      "Authorization": `Bearer ${GROQ_API_KEY}`,
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 8192,
-      system,
-      messages: [{ role: "user", content: userMessage }],
+      model: "llama-3.3-70b-versatile",
+      max_tokens: 4096,
+      temperature: 0.2,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userMessage }
+      ],
     }),
   });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Claude API error ${res.status}: ${err}`);
+    throw new Error(`Groq API error ${res.status}: ${err}`);
   }
 
   const data = await res.json();
-  return data.content[0].text;
+  return data.choices[0].message.content;
 }
 
 Deno.serve(async (req) => {
@@ -119,7 +124,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { projectId, prompt } = await req.json();
+    const { projectId, prompt, retryFromStage } = await req.json();
     if (!projectId || !prompt) {
       return new Response(JSON.stringify({ error: "projectId and prompt required" }), {
         status: 400,
@@ -127,13 +132,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Check idempotency
+    // Check idempotency (only for fresh runs, not retries)
     const { data: existingStages } = await supabase
       .from("pipeline_stages")
-      .select("id, status")
+      .select("id, status, stage_name, output_data")
       .eq("project_id", projectId);
 
-    if (existingStages && existingStages.length > 0) {
+    if (!retryFromStage && existingStages && existingStages.length > 0) {
       const allDone = existingStages.every((s: any) => s.status === "completed");
       if (allDone) {
         return new Response(JSON.stringify({ message: "Pipeline already completed" }), {
@@ -145,33 +150,105 @@ Deno.serve(async (req) => {
     // Update project status
     await supabase.from("projects").update({ status: "processing" }).eq("id", projectId);
 
-    // Create stage rows
-    const stageRows = STAGES.map((s) => ({
-      project_id: projectId,
-      stage_name: s.name,
-      stage_order: s.order,
-      status: "pending",
-    }));
+    // Determine which stages to run
+    let stagesToRun = STAGES;
+    let previousOutput: any = prompt;
+    let stageRowMap: Map<string, any> = new Map();
 
-    const { data: insertedStages, error: insertErr } = await supabase
-      .from("pipeline_stages")
-      .insert(stageRows)
-      .select();
+    if (retryFromStage) {
+      // Find the starting stage index
+      const startIndex = STAGES.findIndex((s) => s.name === retryFromStage);
+      if (startIndex === -1) {
+        return new Response(JSON.stringify({ error: `Invalid stage name: ${retryFromStage}` }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
-    if (insertErr) throw insertErr;
+      stagesToRun = STAGES.slice(startIndex);
 
-    let previousOutput = prompt;
+      // Load previous stage outputs from DB
+      for (let i = 0; i < startIndex; i++) {
+        const prevStage = STAGES[i];
+        const existingRow = existingStages?.find((s: any) => s.stage_name === prevStage.name);
+        if (existingRow?.status === "completed") {
+          previousOutput = existingRow.output_data;
+        }
+      }
+
+      // Reset the retry stage and subsequent stages to pending
+      for (const stage of stagesToRun) {
+        const existingRow = existingStages?.find((s: any) => s.stage_name === stage.name);
+        if (existingRow) {
+          await supabase
+            .from("pipeline_stages")
+            .update({
+              status: "pending",
+              output_data: null,
+              error_message: null,
+              latency_ms: null,
+              retries: 0,
+              completed_at: null,
+            })
+            .eq("id", existingRow.id);
+        }
+      }
+    } else {
+      // Fresh run - create stage rows if they don't exist
+      if (!existingStages || existingStages.length === 0) {
+        const stageRows = STAGES.map((s) => ({
+          project_id: projectId,
+          stage_name: s.name,
+          stage_order: s.order,
+          status: "pending",
+        }));
+
+        const { data: insertedStages, error: insertErr } = await supabase
+          .from("pipeline_stages")
+          .insert(stageRows)
+          .select();
+
+        if (insertErr) throw insertErr;
+        
+        for (const row of insertedStages || []) {
+          stageRowMap.set(row.stage_name, row);
+        }
+      } else {
+        for (const row of existingStages) {
+          stageRowMap.set(row.stage_name, row);
+        }
+      }
+    }
+
     let allSucceeded = true;
 
-    for (let i = 0; i < STAGES.length; i++) {
-      const stage = STAGES[i];
-      const stageRow = insertedStages!.find((r: any) => r.stage_name === stage.name);
-      if (!stageRow) continue;
+    for (const stage of stagesToRun) {
+      // Delay to avoid rate limiting
+      await sleep(3000);
+      
+      let stageRow = stageRowMap.get(stage.name);
+      
+      // Get or create stage row
+      if (!stageRow) {
+        const { data: newRow, error: createErr } = await supabase
+          .from("pipeline_stages")
+          .insert({
+            project_id: projectId,
+            stage_name: stage.name,
+            stage_order: stage.order,
+            status: "pending",
+          })
+          .select()
+          .single();
+        
+        if (createErr) throw createErr;
+        stageRow = newRow;
+      }
 
       // Mark running
       await supabase
         .from("pipeline_stages")
-        .update({ status: "running" })
+        .update({ status: "running", input_data: typeof previousOutput === "string" ? { prompt: previousOutput } : previousOutput })
         .eq("id", stageRow.id);
 
       const startTime = Date.now();
@@ -183,10 +260,10 @@ Deno.serve(async (req) => {
         try {
           const userMsg = attempt === 0
             ? (typeof previousOutput === "string" ? previousOutput : JSON.stringify(previousOutput))
-            : "Your previous output was invalid JSON. Output valid JSON only, no markdown, no backticks.\n\n" +
+            : "Your previous output was invalid JSON. Return valid JSON only, no markdown, no backticks, no prose.\n\n" +
               (typeof previousOutput === "string" ? previousOutput : JSON.stringify(previousOutput));
 
-          const rawResponse = await callClaude(stage.system, userMsg);
+          const rawResponse = await callGroq(stage.system, userMsg);
           const cleaned = stripCodeFences(rawResponse);
           parsed = JSON.parse(cleaned);
           errorMsg = null;
@@ -223,8 +300,13 @@ Deno.serve(async (req) => {
           })
           .eq("id", stageRow.id);
 
-        allSucceeded = false;
-        break;
+        // Update project status to failed
+        await supabase.from("projects").update({ status: "failed" }).eq("id", projectId);
+
+        return new Response(JSON.stringify({ error: `Stage ${stage.name} failed: ${errorMsg}` }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
     }
 

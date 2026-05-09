@@ -22,7 +22,7 @@ interface StageCardProps {
     retries: number;
   };
   index: number;
-  onRetry?: (stageId: string) => void;
+  onRetry?: (stageId: string, stageName: string) => void;
 }
 
 export function StageCard({ stage, index, onRetry }: StageCardProps) {
@@ -83,7 +83,7 @@ export function StageCard({ stage, index, onRetry }: StageCardProps) {
         <div className="space-y-2">
           <p className="text-sm text-destructive">{stage.error_message}</p>
           {onRetry && (
-            <Button variant="outline" size="sm" onClick={() => onRetry(stage.id)}>
+            <Button variant="outline" size="sm" onClick={() => onRetry(stage.id, stage.stage_name)}>
               <RotateCcw className="mr-1.5 h-3 w-3" /> Retry Stage
             </Button>
           )}
