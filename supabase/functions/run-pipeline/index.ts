@@ -223,8 +223,8 @@ Deno.serve(async (req) => {
     let allSucceeded = true;
 
     for (const stage of stagesToRun) {
-      // Delay to avoid rate limiting
-      await sleep(3000);
+      // Delay to avoid rate limiting (8s to stay under TPM limit)
+      await sleep(8000);
       
       let stageRow = stageRowMap.get(stage.name);
       
